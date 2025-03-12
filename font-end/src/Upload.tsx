@@ -2,21 +2,31 @@ import { useRef, useState } from 'react';
 import axios from 'axios';
 
 const CHUNK_SIZE = 1024 * 1024; // 1MB分块
-
-export function App() {
+function Upload() {
   const [file, setFile] = useState<File | null>(null);
-  const [progress, setProgress] = useState(0);
+  const [progress, setProgress] = useState<string | number>(0);
   const [uploading, setUploading] = useState(false);
   const controllerRef = useRef<AbortController>(null);
   const uploadedSizeRef = useRef(0);
 
+  // 文件分片处理
+  const createFileChunks = (startByte: number, file: File) => {
+    const chunks = [];
+    let cur = startByte;
+    while (cur < file.size) {
+      chunks.push(file.slice(cur, cur + CHUNK_SIZE));
+      cur += CHUNK_SIZE;
+    }
+    return chunks;
+  };
   // 选择文件
-  const handleFileChange = (e: any) => {
+  const handleFileChange = async (e: any) => {
     const selectedFile = e.target?.files[0];
     if (selectedFile) {
       setFile(selectedFile);
-      setProgress(0);
-      uploadedSizeRef.current = 0;
+      let startByte = await getUploadedSize(selectedFile.name);
+      setProgress(((startByte / selectedFile.size) * 100).toFixed(2));
+      uploadedSizeRef.current = startByte;
     }
   };
 
@@ -43,28 +53,28 @@ export function App() {
     let startByte = await getUploadedSize(filename);
     uploadedSizeRef.current = startByte;
 
-    while (startByte < file.size) {
-      const chunk = file.slice(startByte, startByte + CHUNK_SIZE);
-      const contentRange = `bytes ${startByte}-${startByte + chunk.size - 1}/${file.size}`;
+    const chunks = createFileChunks(startByte, file);
 
+    for (const chunk of chunks) {
+      const contentRange = `bytes ${startByte}-${startByte + chunk.size - 1}/${file.size}`;
       try {
         await axios.put(`http://localhost:8080/upload/${filename}`, chunk, {
           headers: {
             'Content-Range': contentRange,
-            'Content-Type': 'application/octet-stream',
+            'Content-Type': 'Uploadlication/octet-stream',
           },
           signal: controllerRef.current.signal,
         });
         startByte += chunk.size;
         uploadedSizeRef.current = startByte;
-        setProgress(Math.round((startByte / file.size) * 100));
+        setProgress(((startByte / file.size) * 100).toFixed(2));
       } catch (err) {
         if (axios.isCancel(err)) {
           console.log('Upload paused');
         } else {
           console.error('Upload failed:', err);
         }
-        break;
+        return;
       }
     }
 
@@ -111,4 +121,4 @@ export function App() {
   );
 }
 
-export default App;
+export default Upload;
